@@ -1,0 +1,2 @@
+# gabble
+Go XMPP Library
