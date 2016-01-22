@@ -22,6 +22,11 @@ type Body struct {
 	Content string
 	RID     int
 
+	// Since Hold can be 0 set this to true if Hold was actually set and
+	// should be added as an attribute to the element returned from
+	// TransformElement.
+	HoldSet bool
+
 	// XMPP
 	XMPPVer      Version
 	RestartLogic bool
@@ -72,7 +77,7 @@ func (b Body) TransformElement() (el element.Element) {
 		xmppNS = true
 	}
 
-	if b.Hold != -1 {
+	if b.HoldSet {
 		el = el.AddAttr("hold", strconv.Itoa(b.Hold))
 	}
 
@@ -129,26 +134,49 @@ func (b Body) TransformElement() (el element.Element) {
 	return
 }
 
-func TransformBody(el element.Element) (b Body) {
+type BodyTransformer struct {
+	dflt    Body
+	lang    string
+	version Version
+	wait    time.Duration
+	hold    int
+	xmpp    Version
+	content string
+}
+
+func NewBodyTransformer(dflt Body) BodyTransformer {
+	return BodyTransformer{dflt: dflt}
+}
+
+func (bt BodyTransformer) TransformBody(el element.Element) (b Body) {
 	b.To = el.SelectAttrValue("to", "")
-	b.Lang = el.SelectAttrValue("xml:lang", lang)
-	b.Ver = parseVersion(el.SelectAttrValue("ver", ""), ver)
-	b.Wait = parseWait(el.SelectAttrValue("wait", ""), maxWait)
-	b.Hold = parseHold(el.SelectAttrValue("hold", ""), maxHold)
+	b.From = el.SelectAttrValue("from", "")
+	b.Lang = el.SelectAttrValue("xml:lang", bt.dflt.Lang)
+	b.Accept = el.SelectAttrValue("accept", bt.dflt.Accept)
+	b.Ver = bt.parseVersion(el.SelectAttrValue("ver", ""))
+	b.Wait = bt.parseWait(el.SelectAttrValue("wait", ""))
+	b.Polling = bt.parsePolling(el.SelectAttrValue("polling", ""))
+	b.Inactivity = bt.parseInactivity(el.SelectAttrValue("inactivity", ""))
+	b.MaxPause = bt.parseMaxPause(el.SelectAttrValue("maxpause", ""))
+	b.Hold = bt.parseHold(el.SelectAttrValue("hold", ""))
+	b.Requests = bt.parseRequests(el.SelectAttrValue("requests", ""))
 	if str := el.SelectAttrValue("ack", ""); str != "" {
 		ack, err := strconv.Atoi(str)
 		if err == nil {
 			b.Ack = ack
 		}
 	}
-	b.Content = el.SelectAttrValue("content", content)
+	b.Content = el.SelectAttrValue("content", bt.dflt.Content)
 	b.SID = el.SelectAttrValue("sid", "")
 	if rid, err := strconv.Atoi(el.SelectAttrValue("rid", "")); err == nil {
 		b.RID = rid
 	}
-	b.XMPPVer = parseVersion(el.SelectAttrValue("xmpp:version", ""), xmppver)
+	b.XMPPVer = bt.parseXMPPVersion(el.SelectAttrValue("xmpp:version", ""))
 	if el.SelectAttrValue("xmpp:restart", "false") == "true" {
 		b.Restart = true
+	}
+	if el.SelectAttrValue("xmpp:restartlogic", "false") == "true" {
+		b.RestartLogic = true
 	}
 	for _, child := range el.ChildElements() {
 		b.Children = append(b.Children, child)
@@ -156,18 +184,18 @@ func TransformBody(el element.Element) (b Body) {
 	return
 }
 
-func parseVersion(str string, dflt Version) Version {
+func (bt BodyTransformer) parseVersion(str string) Version {
 	idx := strings.Index(str, ".")
 	if idx == -1 {
-		return dflt
+		return bt.dflt.Ver
 	}
 	major, err := strconv.Atoi(str[:idx])
 	if err != nil {
-		return dflt
+		return bt.dflt.Ver
 	}
 	minor, err := strconv.Atoi(str[idx+1:])
 	if err != nil {
-		return dflt
+		return bt.dflt.Ver
 	}
 	return Version{
 		Major: major,
@@ -175,23 +203,78 @@ func parseVersion(str string, dflt Version) Version {
 	}
 }
 
-func parseWait(str string, dflt time.Duration) time.Duration {
+func (bt BodyTransformer) parseXMPPVersion(str string) Version {
+	idx := strings.Index(str, ".")
+	if idx == -1 {
+		return bt.dflt.XMPPVer
+	}
+	major, err := strconv.Atoi(str[:idx])
+	if err != nil {
+		return bt.dflt.XMPPVer
+	}
+	minor, err := strconv.Atoi(str[idx+1:])
+	if err != nil {
+		return bt.dflt.XMPPVer
+	}
+	return Version{
+		Major: major,
+		Minor: minor,
+	}
+}
+
+func (bt BodyTransformer) parseWait(str string) time.Duration {
 	seconds, err := strconv.Atoi(str)
 	if err != nil {
-		return dflt
+		return bt.dflt.Wait
 	}
 
 	return time.Duration(seconds) * time.Second
 }
 
-func parseHold(str string, dflt int) int {
+func (bt BodyTransformer) parsePolling(str string) time.Duration {
+	seconds, err := strconv.Atoi(str)
+	if err != nil {
+		return bt.dflt.Polling
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+func (bt BodyTransformer) parseInactivity(str string) time.Duration {
+	seconds, err := strconv.Atoi(str)
+	if err != nil {
+		return bt.dflt.Inactivity
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+func (bt BodyTransformer) parseMaxPause(str string) time.Duration {
+	seconds, err := strconv.Atoi(str)
+	if err != nil {
+		return bt.dflt.MaxPause
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+func (bt BodyTransformer) parseHold(str string) int {
 	if str == "" {
 		return -1
 	}
 	hold, err := strconv.Atoi(str)
 	if err != nil {
-		return dflt
+		return bt.dflt.Hold
 	}
 
 	return hold
+}
+
+func (bt BodyTransformer) parseRequests(str string) int {
+	requests, err := strconv.Atoi(str)
+	if err != nil {
+		return bt.dflt.Requests
+	}
+
+	return requests
 }

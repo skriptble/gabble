@@ -2,7 +2,7 @@ package bosh
 
 import (
 	"errors"
-	"net/http"
+	"io"
 	"time"
 
 	"github.com/skriptble/nine/element"
@@ -65,26 +65,15 @@ func (r *Request) Elements() []element.Element {
 	return r.body.Children
 }
 
-func (r *Request) Handle(w http.ResponseWriter) {
+func (r *Request) Handle(w io.Writer) {
 	select {
 	case <-r.proceed:
 	case <-r.closed:
 		r.spent = true
-		if r.response.Ack == 0 {
-			r.response.Ack = r.ack()
-		}
 	case <-time.After(r.wait):
 		r.spent = true
-		if r.response.Ack == 0 {
-			r.response.Ack = r.ack()
-		}
 	}
+	r.response.Ack = r.ack()
 	r.response.Children = r.payload
 	w.Write(r.response.TransformElement().WriteBytes())
-}
-
-func TransformRequest(el element.Element) (r *Request) {
-	r = new(Request)
-
-	return
 }

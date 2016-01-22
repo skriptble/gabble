@@ -29,36 +29,16 @@ var lang = "en"
 var content = "text/xml; charset=utf-8"
 var server = "localhost"
 
-type Version struct {
-	Major, Minor int
-}
-
-// Compare takes a version and returns the version with the lower version
-// number.
-func (v Version) Compare(o Version) Version {
-	if v.Major < o.Major {
-		return v
-	}
-	if v.Major > o.Major {
-		return o
-	}
-
-	if v.Minor < o.Minor {
-		return v
-	}
-
-	return o
-
-}
-
 type Handler struct {
-	r Register
+	r  Register
+	bt BodyTransformer
 }
 
 // NewHandler creates a new Handler and returns it
-func NewHandler(r Register) *Handler {
+func NewHandler(r Register, bt BodyTransformer) *Handler {
 	h := new(Handler)
 	h.r = r
+	h.bt = bt
 	return h
 }
 
@@ -91,41 +71,29 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	switch elem := token.(type) {
 	case xml.StartElement:
 		if elem.Name.Local != "body" {
-			b := body.
-				AddAttr("type", "terminate").
-				AddAttr("condition", "bad-request").
-				WriteBytes()
+			b := badRequest.WriteBytes()
 			rw.Write(b)
 			log.Println("Not a body element")
 			return
 		}
 		el, err = h.createElement(elem, dec)
 		if err != nil {
-			b := body.
-				AddAttr("type", "terminate").
-				AddAttr("condition", "bad-request").
-				WriteBytes()
+			b := badRequest.WriteBytes()
 			rw.Write(b)
 			log.Println("Couldn't create the element")
 			log.Println(err)
 			return
 		}
 	default:
-		b := body.
-			AddAttr("type", "terminate").
-			AddAttr("condition", "bad-request").
-			WriteBytes()
+		b := badRequest.WriteBytes()
 		rw.Write(b)
 		log.Println("Malformed XML")
 		return
 	}
 	fmt.Println(el)
-	bdy := TransformBody(el)
+	bdy := h.bt.TransformBody(el)
 	if bdy.RID == 0 {
-		b := body.
-			AddAttr("type", "terminate").
-			AddAttr("condition", "bad-request").
-			WriteBytes()
+		b := badRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}
@@ -155,6 +123,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		if bdy.Hold > maxHold || bdy.Hold == -1 {
 			rsp.Hold = maxHold
 		}
+		rsp.HoldSet = true
 
 		rsp.To = server
 		rsp.Ack = bdy.RID
@@ -169,10 +138,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		req := NewRequest(bdy.RID, rsp.Wait, rsp.SID, bdy, rsp, s.UnregisterRequest(rsp.RID))
 		err = s.Process(req)
 		if err != nil {
-			b := body.
-				AddAttr("type", "terminate").
-				AddAttr("condition", "internal-server-error").
-				WriteBytes()
+			b := badRequest.WriteBytes()
 			rw.Write(b)
 			return
 		}
@@ -187,10 +153,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// found error.
 	s, err := h.r.Lookup(bdy.SID)
 	if err != nil {
-		b := body.
-			AddAttr("type", "terminate").
-			AddAttr("condition", "item-not-found").
-			WriteBytes()
+		b := badRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}
@@ -201,10 +164,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	log.Printf("Request to be processed: %+v", req)
 	err = s.Process(req)
 	if err != nil {
-		b := body.
-			AddAttr("type", "terminate").
-			AddAttr("condition", "internal-server-error").
-			WriteBytes()
+		b := badRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}

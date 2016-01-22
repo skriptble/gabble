@@ -1,9 +1,6 @@
 package bosh
 
-import (
-	"errors"
-	"sync"
-)
+import "errors"
 
 // TODO: Register should be changed into an interface. This interface will be
 // responsible for creating the stream from the added sessions and closing the
@@ -29,51 +26,4 @@ type Register interface {
 	// Lookup finds a session by its session ID. Lookup should not return any
 	// session which has expired.
 	Lookup(sid string) (*Session, error)
-}
-
-// Register tracks all of the active Transports, allowing a particular
-// connection to attach itself to a stream.
-type register struct {
-	sessions map[string]*Session
-
-	sync.RWMutex
-}
-
-// NewRegister returns a new initalized Register.
-func NewRegister() Register {
-	r := new(register)
-	r.sessions = make(map[string]*Session)
-	return r
-}
-
-// Add adds a session to the Register.
-func (r *register) Add(sid string, s *Session) {
-	r.Lock()
-	defer r.Unlock()
-	r.sessions[sid] = s
-}
-
-// Remove removes a session from the Register.
-func (r *register) Remove(sid string) {
-	r.Lock()
-	defer r.Unlock()
-	delete(r.sessions, sid)
-}
-
-// Lookup returns the Session associated with the given sid. If the session
-// doesn't exist, ErrSessionNotFound is returned.
-func (r *register) Lookup(sid string) (s *Session, err error) {
-	r.RLock()
-	s, ok := r.sessions[sid]
-	r.RUnlock()
-	if !ok {
-		err = ErrSessionNotFound
-		return
-	}
-	if s.Expired() {
-		r.Remove(sid)
-		err = ErrSessionNotFound
-		s = nil
-	}
-	return
 }

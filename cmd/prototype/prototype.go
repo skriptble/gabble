@@ -22,7 +22,8 @@ func init() {
 
 func main() {
 	reg := NewRegister()
-	handler := bosh.NewHandler(reg)
+	bt := bosh.NewBodyTransformer(bosh.Body{})
+	handler := bosh.NewHandler(reg, bt)
 	srv := &http.Server{
 		Addr:    ":8088",
 		Handler: handler,
