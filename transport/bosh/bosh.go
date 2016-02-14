@@ -9,36 +9,26 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/skriptble/nine/element"
 )
 
 var ErrMalformedXML = errors.New("malformed xml received")
 
-var maxWait = 45 * time.Second
-var maxRequests = 2
-var maxPolling = 5 * time.Second
-var maxInactivity = 75 * time.Second
-var maxHold = 3
-var ver = Version{Major: 1, Minor: 6}
-var xmppver = Version{Major: 1, Minor: 0}
-var restartLogic = true
-var maxPause = 120 * time.Second
-var lang = "en"
-var content = "text/xml; charset=utf-8"
-var server = "localhost"
-
 type Handler struct {
-	r  Register
-	bt BodyTransformer
+	r      Register
+	bt     BodyTransformer
+	dflt   Body
+	server string
 }
 
 // NewHandler creates a new Handler and returns it
-func NewHandler(r Register, bt BodyTransformer) *Handler {
+func NewHandler(r Register, bt BodyTransformer, dflt Body, server string) *Handler {
 	h := new(Handler)
 	h.r = r
 	h.bt = bt
+	h.dflt = dflt
+	h.server = server
 	return h
 }
 
@@ -53,6 +43,11 @@ func NewHandler(r Register, bt BodyTransformer) *Handler {
 func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	var err error
 	var el element.Element
+
+	if r.Method != "POST" {
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -104,38 +99,11 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	//	  route to
 	var rsp Body
 	if bdy.SID == "" {
-		rsp.SID = h.sessionID()
-		rsp.Wait = bdy.Wait
-		if maxWait < bdy.Wait {
-			rsp.Wait = maxWait
-		}
-
-		rsp.Requests = bdy.Hold + 1
-		if bdy.Hold+1 > maxRequests {
-			rsp.Requests = maxRequests
-		}
-
-		rsp.Ver = bdy.Ver.Compare(ver)
-		rsp.Polling = maxPolling
-		rsp.Inactivity = maxInactivity
-
-		rsp.Hold = bdy.Hold
-		if bdy.Hold > maxHold || bdy.Hold == -1 {
-			rsp.Hold = maxHold
-		}
-		rsp.HoldSet = true
-
-		rsp.To = server
-		rsp.Ack = bdy.RID
-		rsp.MaxPause = maxPause
-
-		rsp.RestartLogic = restartLogic
-		rsp.XMPPVer = bdy.XMPPVer.Compare(xmppver)
-
+		rsp = h.negotiate(bdy)
 		log.Println("Creating session.")
 		s := NewSession(rsp.SID, bdy.RID, rsp.Hold, rsp.Wait, rsp.Inactivity)
 		h.r.Add(rsp.SID, s)
-		req := NewRequest(bdy.RID, rsp.Wait, rsp.SID, bdy, rsp, s.UnregisterRequest(rsp.RID))
+		req := NewRequest(bdy.RID, rsp.Wait, rsp.SID, bdy, rsp, s.UnregisterRequest())
 		err = s.Process(req)
 		if err != nil {
 			b := badRequest.WriteBytes()
@@ -160,7 +128,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Transform the body element into a Body and invoke the process method
 	// of the stream with the Request.
 	// Invoke the Handle method of the request.
-	req := NewRequest(bdy.RID, s.Wait(), bdy.SID, bdy, rsp, s.UnregisterRequest(bdy.RID))
+	req := NewRequest(bdy.RID, s.Wait(), bdy.SID, bdy, rsp, s.UnregisterRequest())
 	log.Printf("Request to be processed: %+v", req)
 	err = s.Process(req)
 	if err != nil {
@@ -170,6 +138,38 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Handle(rw)
+}
+
+func (h *Handler) negotiate(bdy Body) (rsp Body) {
+	var dflt = h.dflt
+	rsp.SID = h.sessionID()
+	rsp.Wait = bdy.Wait
+	if dflt.Wait < bdy.Wait {
+		rsp.Wait = dflt.Wait
+	}
+
+	rsp.Requests = bdy.Hold + 1
+	if bdy.Hold+1 > dflt.Requests {
+		rsp.Requests = dflt.Requests
+	}
+
+	rsp.Ver = bdy.Ver.Compare(dflt.Ver)
+	rsp.Polling = dflt.Polling
+	rsp.Inactivity = dflt.Inactivity
+
+	rsp.Hold = bdy.Hold
+	if bdy.Hold > dflt.Hold && dflt.HoldSet {
+		rsp.Hold = dflt.Hold
+	}
+	rsp.HoldSet = true
+
+	rsp.To = h.server
+	rsp.Ack = bdy.RID
+	rsp.MaxPause = dflt.MaxPause
+
+	rsp.RestartLogic = dflt.RestartLogic
+	rsp.XMPPVer = bdy.XMPPVer.Compare(dflt.XMPPVer)
+	return
 }
 
 func (h *Handler) createElement(start xml.StartElement, dec *xml.Decoder) (el element.Element, err error) {

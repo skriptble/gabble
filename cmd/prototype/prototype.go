@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/skriptble/gabble/transport/bosh"
 	"github.com/skriptble/nine/bind"
@@ -13,6 +14,22 @@ import (
 	"github.com/skriptble/nine/sasl"
 	"github.com/skriptble/nine/stream"
 )
+
+var dflt = bosh.Body{
+	Wait:         45 * time.Second,
+	Requests:     2,
+	Polling:      5 * time.Second,
+	Inactivity:   75 * time.Second,
+	Hold:         3,
+	HoldSet:      true,
+	Ver:          bosh.Version{Major: 1, Minor: 6},
+	XMPPVer:      bosh.Version{Major: 1, Minor: 0},
+	RestartLogic: true,
+	MaxPause:     120 * time.Second,
+	Lang:         "en",
+	Content:      "text/xml; charset=utf8",
+}
+var server = "localhost"
 
 func init() {
 	// turn on debugging
@@ -23,10 +40,12 @@ func init() {
 func main() {
 	reg := NewRegister()
 	bt := bosh.NewBodyTransformer(bosh.Body{})
-	handler := bosh.NewHandler(reg, bt)
+	handler := bosh.NewHandler(reg, bt, dflt, server)
+	mux := http.NewServeMux()
+	mux.Handle("/", handler)
 	srv := &http.Server{
 		Addr:    ":8088",
-		Handler: handler,
+		Handler: mux,
 	}
 	log.Fatal(srv.ListenAndServe())
 }

@@ -135,13 +135,7 @@ func (b Body) TransformElement() (el element.Element) {
 }
 
 type BodyTransformer struct {
-	dflt    Body
-	lang    string
-	version Version
-	wait    time.Duration
-	hold    int
-	xmpp    Version
-	content string
+	dflt Body
 }
 
 func NewBodyTransformer(dflt Body) BodyTransformer {

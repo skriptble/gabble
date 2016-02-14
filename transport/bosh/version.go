@@ -8,16 +8,16 @@ type Version struct {
 // number.
 func (v Version) Compare(o Version) Version {
 	if v.Major < o.Major {
-		return v
+		return o
 	}
 	if v.Major > o.Major {
-		return o
+		return v
 	}
 
 	if v.Minor < o.Minor {
-		return v
+		return o
 	}
 
-	return o
+	return v
 
 }

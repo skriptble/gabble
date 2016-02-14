@@ -71,10 +71,8 @@ func (s *Session) Write(el element.Element) (err error) {
 // request from the registered requests for this session. This method is mainly
 // used as the timeout variable for a request so that a request that has timed
 // out is not used.
-func (s *Session) UnregisterRequest(rid int) func() int {
-	return func() int {
-		return s.Ack()
-	}
+func (s *Session) UnregisterRequest() func() int {
+	return s.Ack
 }
 
 // Close implements io.Closer.
@@ -189,10 +187,12 @@ func (s *Session) buffer(buffer <-chan element.Element) {
 			select {
 			case <-s.exit:
 				return
+			// The only way to get here is if there are no elements in the
+			// slice, therefore we can assign directly to current and set
+			// pending to true.
 			case el := <-buffer:
-				elements = append(elements, el)
+				current = el
 				pending = true
-				current, elements = elements[0], elements[1:]
 			}
 		}
 	}
