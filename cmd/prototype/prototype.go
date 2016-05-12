@@ -124,7 +124,7 @@ func runStream(tp stream.Transport) {
 		log.Fatal(iqHandler.Err())
 	}
 
-	fhs := []stream.FeatureHandler{
+	fhs := []stream.FeatureGenerator{
 		saslHandler,
 		bindHandler,
 		// sessionHandler,
