@@ -3,6 +3,7 @@ package bosh
 import (
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/skriptble/nine/element"
@@ -28,6 +29,7 @@ type Request struct {
 	// write has been received. This function should return the highest rid
 	// processed by the session
 	ack func() int
+	sync.Mutex
 }
 
 func NewRequest(rid int, wait time.Duration, sid string, b, response Body, ack func() int) *Request {
@@ -45,6 +47,8 @@ func NewRequest(rid int, wait time.Duration, sid string, b, response Body, ack f
 
 // Write adds the given elements as the payload for the response body.
 func (r *Request) Write(els ...element.Element) error {
+	r.Lock()
+	defer r.Unlock()
 	if r.spent {
 		return ErrRequestClosed
 	}
@@ -69,8 +73,12 @@ func (r *Request) Handle(w io.Writer) {
 	select {
 	case <-r.proceed:
 	case <-r.closed:
+		r.Lock()
+		defer r.Unlock()
 		r.spent = true
 	case <-time.After(r.wait):
+		r.Lock()
+		defer r.Unlock()
 		r.spent = true
 	}
 	r.response.Ack = r.ack()
