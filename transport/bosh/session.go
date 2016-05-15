@@ -200,6 +200,7 @@ func (s *Session) buffer(buffer <-chan element.Element) {
 
 func (s *Session) response(queue <-chan *Request) {
 	var response []element.Element = make([]element.Element, 0, 10)
+	var timeout time.Duration
 
 	for {
 		select {
@@ -207,7 +208,9 @@ func (s *Session) response(queue <-chan *Request) {
 			return
 		case el := <-s.responder:
 			response = append(response, el)
-			timeout := 50 * time.Millisecond
+			timeout = 50 * time.Millisecond
+			// Exponentially decay the timeout for flushing. This allows to have
+			// a hard limit based on time.
 		loop:
 			for {
 				select {
@@ -218,6 +221,7 @@ func (s *Session) response(queue <-chan *Request) {
 					timeout = timeout / 2
 				}
 			}
+
 			for {
 				// Get a request
 				r := <-queue
