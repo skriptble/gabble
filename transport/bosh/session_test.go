@@ -665,7 +665,7 @@ func TestSessionresponse(t *testing.T) {
 		t.Errorf("\nGot :%+v\nWant:%+v", r1.payload, payload)
 	}
 
-	// should queue a max of 10 resonse elements
+	// should queue as many requests as possible in a expotentially decreasing time frame.
 	// should get requests until an open one is found
 	responder = make(chan element.Element, 11)
 	exit = make(chan struct{})
@@ -680,13 +680,16 @@ func TestSessionresponse(t *testing.T) {
 	for _, el := range payload {
 		responder <- el
 	}
-	responder <- element.New("foobarbaz")
 	r1 = &Request{spent: true}
 	r2 = &Request{proceed: proceed}
 	queue <- r1
 	queue <- r2
 	s = &Session{exit: exit, responder: responder}
 	go s.response(queue)
+	// This timeout is deliberate, after 9 rounds the timeout period for the
+	// response loop will be 195 microseconds.
+	<-time.After(200 * time.Microsecond)
+	responder <- element.New("foobarbaz")
 	select {
 	case <-r2.proceed:
 	case <-time.After(3 * time.Second):
