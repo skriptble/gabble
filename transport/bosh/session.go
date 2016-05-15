@@ -200,7 +200,6 @@ func (s *Session) buffer(buffer <-chan element.Element) {
 
 func (s *Session) response(queue <-chan *Request) {
 	var response []element.Element = make([]element.Element, 0, 10)
-	var r func(time.Duration)
 
 	for {
 		select {
@@ -208,17 +207,17 @@ func (s *Session) response(queue <-chan *Request) {
 			return
 		case el := <-s.responder:
 			response = append(response, el)
-			to := 50 * time.Millisecond
-			r = func(timeout time.Duration) {
+			timeout := 50 * time.Millisecond
+		loop:
+			for {
 				select {
 				case <-time.After(timeout):
-					return
+					break loop
 				case el := <-s.responder:
 					response = append(response, el)
-					r(timeout / 2)
+					timeout = timeout / 2
 				}
 			}
-			r(to)
 			for {
 				// Get a request
 				r := <-queue
