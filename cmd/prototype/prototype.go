@@ -43,6 +43,7 @@ func main() {
 	handler := bosh.NewHandler(reg, bt, dflt, server)
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("."))))
 	srv := &http.Server{
 		Addr:    ":8088",
 		Handler: mux,

@@ -76,6 +76,7 @@ func (s *Session) UnregisterRequest() func() int {
 }
 
 // Close implements io.Closer.
+// TODO: This has a race condition, put a lock around it.
 func (s *Session) Close() error {
 	select {
 	case <-s.exit:

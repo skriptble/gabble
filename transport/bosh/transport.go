@@ -39,7 +39,7 @@ func (t *Transport) Close() error {
 // handles writing the element to the approriate request. This method should
 // be used for non-stanza elements, such as those used during SASL negotiation.
 func (t *Transport) WriteElement(el element.Element) (err error) {
-	log.Println("Writing element")
+	log.Printf("Writing element: %s", el)
 	err = t.s.Write(el)
 	return
 }

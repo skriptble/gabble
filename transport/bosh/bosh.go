@@ -59,6 +59,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	dec := xml.NewDecoder(buf)
 	token, err := dec.RawToken()
 	if err != nil {
+		// TODO(skriptble): This should close the stream.
 		log.Println(err)
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -66,21 +67,21 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	switch elem := token.(type) {
 	case xml.StartElement:
 		if elem.Name.Local != "body" {
-			b := badRequest.WriteBytes()
+			b := BadRequest.WriteBytes()
 			rw.Write(b)
 			log.Println("Not a body element")
 			return
 		}
 		el, err = h.createElement(elem, dec)
 		if err != nil {
-			b := badRequest.WriteBytes()
+			b := BadRequest.WriteBytes()
 			rw.Write(b)
 			log.Println("Couldn't create the element")
 			log.Println(err)
 			return
 		}
 	default:
-		b := badRequest.WriteBytes()
+		b := BadRequest.WriteBytes()
 		rw.Write(b)
 		log.Println("Malformed XML")
 		return
@@ -88,7 +89,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	fmt.Println(el)
 	bdy := h.bt.TransformBody(el)
 	if bdy.RID == 0 {
-		b := badRequest.WriteBytes()
+		b := BadRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}
@@ -106,7 +107,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		req := NewRequest(bdy.RID, rsp.Wait, rsp.SID, bdy, rsp, s.UnregisterRequest())
 		err = s.Process(req)
 		if err != nil {
-			b := badRequest.WriteBytes()
+			b := BadRequest.WriteBytes()
 			rw.Write(b)
 			return
 		}
@@ -121,7 +122,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// found error.
 	s, err := h.r.Lookup(bdy.SID)
 	if err != nil {
-		b := badRequest.WriteBytes()
+		b := BadRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}
@@ -132,7 +133,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	log.Printf("Request to be processed: %+v", req)
 	err = s.Process(req)
 	if err != nil {
-		b := badRequest.WriteBytes()
+		b := BadRequest.WriteBytes()
 		rw.Write(b)
 		return
 	}
@@ -173,11 +174,17 @@ func (h *Handler) negotiate(bdy Body) (rsp Body) {
 }
 
 func (h *Handler) createElement(start xml.StartElement, dec *xml.Decoder) (el element.Element, err error) {
+	ns := make(map[string]string)
+	return h.childElementsHelper(start, dec, ns)
+}
+
+func (h *Handler) childElementsHelper(start xml.StartElement, dec *xml.Decoder, ns map[string]string) (el element.Element, err error) {
 	var children []element.Token
 
 	el = element.Element{
-		Space: start.Name.Space,
-		Tag:   start.Name.Local,
+		Space:      start.Name.Space,
+		Tag:        start.Name.Local,
+		Namespaces: ns,
 	}
 	for _, attr := range start.Attr {
 		el.Attr = append(
@@ -190,20 +197,24 @@ func (h *Handler) createElement(start xml.StartElement, dec *xml.Decoder) (el el
 		)
 
 		if el.Space == "" && attr.Name.Space == "" && attr.Name.Local == "xmlns" {
-			el.Space = attr.Value
+			el.Namespaces[""] = attr.Value
 		}
 
 		if attr.Name.Space == "xmlns" && el.Space == attr.Name.Local {
-			el.Space = attr.Value
+			el.Namespaces[attr.Name.Local] = attr.Value
 		}
 	}
 
-	children, err = h.childElements(dec)
+	nns := make(map[string]string)
+	for k, v := range el.Namespaces {
+		nns[k] = v
+	}
+	children, err = h.childElements(dec, nns)
 	el.Child = children
 	return
 }
 
-func (h *Handler) childElements(dec *xml.Decoder) (children []element.Token, err error) {
+func (h *Handler) childElements(dec *xml.Decoder, ns map[string]string) (children []element.Token, err error) {
 	var token xml.Token
 	var el element.Element
 	for {
@@ -214,7 +225,7 @@ func (h *Handler) childElements(dec *xml.Decoder) (children []element.Token, err
 
 		switch elem := token.(type) {
 		case xml.StartElement:
-			el, err = h.createElement(elem, dec)
+			el, err = h.childElementsHelper(elem, dec, ns)
 			if err != nil {
 				return
 			}
