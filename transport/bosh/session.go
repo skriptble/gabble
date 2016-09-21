@@ -144,10 +144,10 @@ func (s *Session) process(queue chan *Request, buffer chan<- element.Element) {
 				r.Close()
 			}
 			if r.body.Restart == true {
-				log.Println("Seneding restart")
+				log.Println("Sending restart")
 				s.restart <- struct{}{}
 			}
-			log.Println("Reqeusts queued")
+			log.Println("Request queued")
 			for r, ok := requests[current]; ok; r, ok = requests[current] {
 				for _, el := range r.Elements() {
 					log.Println("Buffered element")
@@ -155,6 +155,7 @@ func (s *Session) process(queue chan *Request, buffer chan<- element.Element) {
 				}
 				s.ack = r.RID()
 				log.Println("Increasing ack")
+				delete(requests, current)
 				current++
 			}
 		}
@@ -165,6 +166,9 @@ func (s *Session) process(queue chan *Request, buffer chan<- element.Element) {
 // one for a call to Element(). This is necessary because the runner cannot be
 // blocked waiting for a call to Element, but we only want to send an element
 // down the elements channel when we have one ready.
+//
+// TODO(skriptble): These are two separate concerns, split them into two
+// functions and put a channel inbetween, similar to response and flush
 func (s *Session) buffer(buffer <-chan element.Element) {
 	var elements []element.Element
 	var current element.Element
@@ -201,40 +205,64 @@ func (s *Session) buffer(buffer <-chan element.Element) {
 
 func (s *Session) response(queue <-chan *Request) {
 	var response []element.Element = make([]element.Element, 0, 10)
-	var timeout time.Duration
+	var timeout time.Duration = 1 * time.Second
+	var elems chan []element.Element = make(chan []element.Element)
+
+	go s.flush(elems, queue)
 
 	for {
 		select {
 		case <-s.exit:
+			// TODO(skriptble): We should add callback functions to invoke
+			// when shutting down. Potentially useful to route errors back to
+			// senders.
 			return
 		case el := <-s.responder:
 			response = append(response, el)
-			timeout = 50 * time.Millisecond
-			// Exponentially decay the timeout for flushing. This allows to have
-			// a hard limit based on time.
-		loop:
-			for {
-				select {
-				case <-time.After(timeout):
-					break loop
-				case el := <-s.responder:
-					response = append(response, el)
-					timeout = timeout / 2
-				}
+			if len(response) == 1 {
+				timeout = 50 * time.Millisecond
+				continue
 			}
+			// Exponentially decay the timeout for flushing. This creates
+			// a hard limit based on time.
+			timeout = timeout / 2
+		case <-time.After(timeout):
+			if len(response) > 0 {
+				timeout = timeout * 2
+				continue
+			}
+			select {
+			case elems <- response:
+				response = make([]element.Element, 0, 10)
+			default:
+				timeout = 50 * time.Millisecond
+			}
+		}
+	}
+}
 
+func (s *Session) flush(elems chan []element.Element, queue <-chan *Request) {
+	for {
+		select {
+		case <-s.exit:
+			for r := range queue {
+				r.Close()
+			}
+			return
+		case rsp := <-elems:
 			for {
 				// Get a request
-				r := <-queue
+				r, ok := <-queue
+				if !ok {
+					return
+				}
 				// Write the response to the request
-				err := r.Write(response...)
+				err := r.Write(rsp...)
 				if err == ErrRequestClosed {
 					continue
 				}
 				break
 			}
-			// Create a history entry for the response
-			response = make([]element.Element, 0, 10)
 		}
 	}
 }

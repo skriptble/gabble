@@ -1,7 +1,6 @@
 package bosh
 
 import (
-	"errors"
 	"log"
 
 	"github.com/skriptble/nine/element"
@@ -44,6 +43,10 @@ func (t *Transport) WriteElement(el element.Element) (err error) {
 	return
 }
 
+func (t *Transport) Write(p []byte) (n int, err error) {
+	return
+}
+
 // WriteStanza writes the given stanza to the underlying Session. The Session
 // handles writing the stanza to the appropriate request. This method should be
 // used instead of transforming a stanza to an element and using WriteElement.
@@ -61,15 +64,11 @@ func (t *Transport) Next() (el element.Element, err error) {
 }
 
 // Start starts or restarts the stream.
-func (t *Transport) Start(p stream.Properties) (stream.Properties, error) {
-	if t.mode == stream.Initiating {
-		return p, errors.New("Not implemented")
-	}
-
+func (t *Transport) Start() (bool, error) {
 	// Receiving mode
-	if p.Domain == "" {
-		return p, stream.ErrDomainNotSet
-	}
+	// if p.Domain == "" {
+	// 	return false, stream.ErrDomainNotSet
+	// }
 	if t.restart {
 		// Wait for the restart from the client
 		_, err := t.s.Element()
@@ -80,11 +79,11 @@ func (t *Transport) Start(p stream.Properties) (stream.Properties, error) {
 		t.restart = true
 	}
 	log.Println("Sending features")
-	ftrs := element.StreamFeatures
-	for _, f := range p.Features {
-		ftrs = ftrs.AddChild(f)
-	}
-	err := t.WriteElement(ftrs)
+	// ftrs := element.StreamFeatures
+	// for _, f := range p.Features {
+	// 	ftrs = ftrs.AddChild(f)
+	// }
+	// err := t.WriteElement(ftrs)
 	log.Println("Features sent")
-	return p, err
+	return false, nil
 }
